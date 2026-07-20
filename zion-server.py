@@ -19,7 +19,7 @@ from flask import Flask, request, jsonify
 import requests
 import yt_dlp
 
-VERSION = '1.3.0'
+VERSION = '1.4.0'
 REPO = 'duchy-ctrl/zion-stream'
 RAW = f'https://raw.githubusercontent.com/{REPO}/main'
 FROZEN = bool(getattr(sys, 'frozen', False))
@@ -483,13 +483,20 @@ def active_preset():
     return chosen
 
 
+_PRESET_CACHE = {}  # key -> (expira_la, [ids])
+
+
 def preset_track_ids(key):
+    now = time.time()
+    hit = _PRESET_CACHE.get(key)
+    if hit and hit[0] > now:
+        return hit[1]
     q = PRESETS.get(key, {}).get('query', '')
     if not q:
         return []
     try:
         with yt_dlp.YoutubeDL({**BASE, 'extract_flat': True}) as ydl:
-            info = ydl.extract_info(f'ytsearch12:{q}', download=False)
+            info = ydl.extract_info(f'ytsearch15:{q}', download=False)
         ids = []
         for e in (info or {}).get('entries') or []:
             if not e or not e.get('id'):
@@ -498,7 +505,10 @@ def preset_track_ids(key):
             if d and d < 180:   # sarim clipurile scurte, vrem mixuri lungi
                 continue
             ids.append(e['id'])
-        return ids[:8]
+        ids = ids[:10]
+        if ids:
+            _PRESET_CACHE[key] = (now + 30 * 60, ids)
+        return ids
     except Exception as ex:
         logger.warning(f'Auto-DJ: cautare preset esuata {key}: {ex}')
         return []
@@ -528,58 +538,94 @@ def find_streamer_ip():
     return ''
 
 
-def autodj_play(vid, ip):
+@app.get('/api/stream/live.mp3')
+def live_stream():
+    # Radio continuu: un SINGUR flux MP3 nesfarsit. Streamerul deschide o data
+    # aceasta adresa si canta la infinit; comutarea de preset (ex. 19:30) se face
+    # in interiorul aceluiasi flux, fara pauza si fara comenzi noi catre streamer.
+    ff = ffmpeg_path()
+    if not ff:
+        return jsonify(error='ffmpeg lipseste'), 500
+
+    def gen():
+        while True:
+            preset = active_preset()
+            ids = preset_track_ids(preset)
+            if not ids:
+                time.sleep(2)
+                continue
+            for vid in ids:
+                if active_preset() != preset:
+                    break  # a trecut ora programata -> schimbam preset-ul
+                try:
+                    url, _ = audio_url(vid)
+                except Exception as ex:
+                    logger.warning(f'Radio: resolve esuat {vid}: {ex}')
+                    continue
+                # parametri constanti => segmentele MP3 se leaga curat
+                args = [ff, '-hide_banner', '-loglevel', 'error',
+                        '-reconnect', '1', '-reconnect_streamed', '1',
+                        '-i', url, '-vn', '-ar', '44100', '-ac', '2',
+                        '-b:a', '192k', '-f', 'mp3', '-']
+                proc = subprocess.Popen(args, stdout=subprocess.PIPE,
+                                        stderr=subprocess.DEVNULL,
+                                        creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                logger.info(f'Radio [{preset}]: {vid}')
+                try:
+                    while True:
+                        chunk = proc.stdout.read(16384)
+                        if not chunk:
+                            break
+                        if active_preset() != preset:
+                            break
+                        yield chunk
+                finally:
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
+
+    return app.response_class(gen(), mimetype='audio/mpeg')
+
+
+def streamer_status(ip):
     try:
-        _, dur = audio_url(vid)
-    except Exception as ex:
-        logger.warning(f'Auto-DJ: resolve esuat {vid}: {ex}')
-        return 0
-    url = f'{LAN_URL}/api/audio/{vid}.mp3'
+        r = requests.get(f'http://{ip}/httpapi.asp?command=getPlayerStatus', timeout=4)
+        return json.loads(r.text).get('status', '')
+    except Exception:
+        return ''
+
+
+def autodj_start(ip):
     from urllib.parse import quote
+    url = f'{LAN_URL}/api/stream/live.mp3'
     try:
         requests.get(f'http://{ip}/httpapi.asp?command=setPlayerCmd:play:{quote(url, safe="")}',
-                     timeout=5)
+                     timeout=6)
+        logger.info(f'Auto-DJ: pornesc radio continuu pe {ip}')
+        return True
     except Exception as ex:
-        logger.warning(f'Auto-DJ: comanda play esuata: {ex}')
-        return 0
-    logger.info(f'Auto-DJ: redau {vid} ({dur}s) pe {ip}')
-    return dur or 600
+        logger.warning(f'Auto-DJ: nu pot porni radio: {ex}')
+        return False
 
 
 def autodj_loop():
     time.sleep(8)
-    cur_key = None
-    tracks = []
-    idx = 0
-    track_end = 0
     while True:
         try:
-            if not AUTODJ['enabled'] or time.time() < AUTODJ['override_until']:
-                cur_key = None  # la reactivare, reincepe preset-ul curent
-                time.sleep(15)
-                continue
-            ip = find_streamer_ip()
-            if not ip:
-                logger.warning('Auto-DJ: niciun streamer gasit, reincerc.')
-                time.sleep(30)
-                continue
-            want = active_preset()
-            need_new = (want != cur_key) or (not tracks)
-            if need_new:
-                new_tracks = preset_track_ids(want)
-                if not new_tracks:
+            if AUTODJ['enabled'] and time.time() >= AUTODJ['override_until']:
+                ip = find_streamer_ip()
+                if not ip:
+                    logger.warning('Auto-DJ: niciun streamer gasit, reincerc.')
                     time.sleep(30)
                     continue
-                cur_key, tracks, idx = want, new_tracks, 0
-                dur = autodj_play(tracks[idx], ip)
-                track_end = time.time() + dur + 2
-            elif time.time() >= track_end:
-                idx = (idx + 1) % len(tracks)
-                dur = autodj_play(tracks[idx], ip)
-                track_end = time.time() + dur + 2
+                # daca streamerul nu canta (oprit/pauza/eroare), (re)pornim radioul
+                st = streamer_status(ip)
+                if st not in ('play', 'load'):
+                    autodj_start(ip)
         except Exception:
             logger.exception('Auto-DJ: eroare in bucla')
-        time.sleep(15)
+        time.sleep(20)
 
 
 @app.get('/api/presets')
@@ -625,6 +671,10 @@ def autodj_set():
         AUTODJ['override_until'] = 0
     save_state()
     logger.info(f'Auto-DJ set: enabled={AUTODJ["enabled"]} ip={AUTODJ["ip"]}')
+    if AUTODJ['enabled']:
+        ip = AUTODJ['ip'] or find_streamer_ip()
+        if ip:
+            threading.Thread(target=autodj_start, args=(ip,), daemon=True).start()
     return jsonify(ok=True, enabled=AUTODJ['enabled'], ip=AUTODJ['ip'])
 
 

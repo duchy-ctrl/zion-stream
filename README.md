@@ -71,7 +71,9 @@ Serverul poate ține muzica pornită toată ziua fără să atingă nimeni nimic
 - **09:00 → 🏊 Deep House Piscină**
 - **19:30 → 🌅 Dolce Far Niente** (peste noapte)
 
-Playlisturile predefinite sunt **căutări**, nu linkuri fixe — serverul ia mereu mixurile actuale de pe YouTube, deci nu „mor" niciodată. Comutarea se face pe server, deci merge chiar dacă nicio filă de browser nu e deschisă.
+Muzica curge **neîntrerupt, ca un radio**: serverul emite un singur flux MP3 continuu (`/api/stream/live.mp3`) pe care streamerul îl deschide o singură dată și cântă la infinit — fără pauze între piese. Comutarea programată (ex. 19:30) se face în interiorul aceluiași flux, tot fără întrerupere.
+
+Playlisturile predefinite sunt **căutări**, nu linkuri fixe — serverul ia mereu mixurile actuale de pe YouTube, deci nu „mor" niciodată. Totul se face pe server, deci merge chiar dacă nicio filă de browser nu e deschisă.
 
 În interfață: cardul **🎛️ Auto-DJ** → „Pornește". Cele două playlisturi apar și ca butoane, să le pornești manual oricând. Dacă redai ceva manual, Auto-DJ se pune pe pauză 2 ore, apoi reia programul.
 

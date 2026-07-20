@@ -368,9 +368,9 @@ async function refreshAutoDj(){
     const btn = document.getElementById('autodjBtn');
     btn.textContent = autodjOn ? 'Oprește' : 'Pornește';
     btn.classList.toggle('primary', !autodjOn);
-    let txt = autodjOn ? ('Pornit — acum: ' + (names[st.active]||st.active)) : 'Oprit';
+    let txt = autodjOn ? ('Pornit (radio continuu) — acum: ' + (names[st.active]||st.active)) : 'Oprit';
     if(autodjOn && st.override>0) txt += ' (pe pauză '+Math.ceil(st.override/60)+' min, controlezi manual)';
-    txt += '. Program: 09:00 piscină → 19:30 dolce far niente.';
+    txt += '. Cântă neîntrerupt; program: 09:00 piscină → 19:30 dolce far niente.';
     document.getElementById('autodjInfo').textContent = txt;
     // butoane preset
     const pr = document.getElementById('presetRow');
