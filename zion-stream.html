@@ -74,6 +74,15 @@
   <div id="status"></div>
 </div>
 
+<div class="card" id="autodjCard">
+  <div style="display:flex;align-items:center;gap:8px">
+    <label style="flex:1;margin:0">🎛️ Auto-DJ (cântă și comută singur)</label>
+    <button id="autodjBtn" class="small" onclick="toggleAutoDj()">Pornește</button>
+  </div>
+  <div id="autodjInfo" style="font-size:13px;color:var(--mut);margin-top:6px">Se încarcă...</div>
+  <div class="row" id="presetRow"></div>
+</div>
+
 <div class="card">
   <label>Caută pe YouTube</label>
   <input type="text" id="q" placeholder="ex: Andra Sudamericana" onkeydown="if(event.key==='Enter')doSearch()">
@@ -154,6 +163,7 @@ if(!localStorage.getItem('localSrv') && location.protocol.indexOf('http')===0){
   document.getElementById('localSrv').placeholder = 'automat: ' + location.origin;
 }
 renderQueue(); renderPlaylists(); syncToggles(); renderPipedSel();
+setTimeout(refreshAutoDj, 800); setInterval(refreshAutoDj, 60000);
 
 function persist(){
   localStorage.setItem('queue', JSON.stringify(queue));
@@ -345,6 +355,60 @@ async function cmdRead(c){
     const r = await fetch('http://' + ip + '/httpapi.asp?command=' + c, {signal: TO(5000)});
     return await r.text();
   }catch(e){ return null; }
+}
+
+// ---- Auto-DJ ----
+let autodjOn = false;
+async function refreshAutoDj(){
+  if(!localSrv()){ document.getElementById('autodjInfo').textContent = 'Auto-DJ are nevoie de serverul local (pornit pe PC).'; return; }
+  try{
+    const st = await fetch(localSrv()+'/api/autodj', {signal:TO(6000)}).then(r=>r.json());
+    autodjOn = st.enabled;
+    const names = {pool:'🏊 Deep House Piscină', chill:'🌅 Dolce Far Niente'};
+    const btn = document.getElementById('autodjBtn');
+    btn.textContent = autodjOn ? 'Oprește' : 'Pornește';
+    btn.classList.toggle('primary', !autodjOn);
+    let txt = autodjOn ? ('Pornit — acum: ' + (names[st.active]||st.active)) : 'Oprit';
+    if(autodjOn && st.override>0) txt += ' (pe pauză '+Math.ceil(st.override/60)+' min, controlezi manual)';
+    txt += '. Program: 09:00 piscină → 19:30 dolce far niente.';
+    document.getElementById('autodjInfo').textContent = txt;
+    // butoane preset
+    const pr = document.getElementById('presetRow');
+    if(!pr.dataset.done){
+      const presets = await fetch(localSrv()+'/api/presets',{signal:TO(6000)}).then(r=>r.json());
+      pr.innerHTML='';
+      presets.presets.forEach(p=>{
+        const b=document.createElement('button'); b.className='small'; b.textContent='▶ '+p.name;
+        b.onclick=()=>playPreset(p.key, p.name);
+        pr.appendChild(b);
+      });
+      pr.dataset.done='1';
+    }
+  }catch(e){ document.getElementById('autodjInfo').textContent='Serverul local nu răspunde.'; }
+}
+async function toggleAutoDj(){
+  if(!localSrv()){ setStatus('Auto-DJ are nevoie de serverul local.', false); return; }
+  const want = autodjOn ? '0' : '1';
+  const ipq = ip ? ('&ip='+ip) : '';
+  setStatus(want==='1'?'Pornesc Auto-DJ...':'Opresc Auto-DJ...');
+  try{
+    await fetch(localSrv()+'/api/autodj/set?on='+want+ipq, {signal:TO(8000)});
+    await refreshAutoDj();
+    setStatus(want==='1'?'Auto-DJ pornit. Cântă singur și comută la 19:30.':'Auto-DJ oprit.', true);
+  }catch(e){ setStatus('Nu am putut schimba Auto-DJ.', false); }
+}
+async function playPreset(key, name){
+  setStatus('Pregătesc „'+name+'"...');
+  try{
+    const j = await fetch(localSrv()+'/api/preset/'+key, {signal:TO(20000)}).then(r=>r.json());
+    if(!j.tracks || !j.tracks.length){ setStatus('Nu am găsit piese pentru „'+name+'" acum.', false); return; }
+    queue = j.tracks.slice(); cur=-1; played.clear(); persist(); renderQueue();
+    playIndex(0);
+    setStatus('Pornesc „'+name+'" ('+j.tracks.length+' piese).', true);
+  }catch(e){ setStatus('Nu am putut porni „'+name+'".', false); }
+}
+async function pauseAutoDjIfOn(){
+  if(autodjOn && localSrv()){ try{ await fetch(localSrv()+'/api/autodj/pause?min=120', {signal:TO(5000)}); refreshAutoDj(); }catch(e){} }
 }
 
 async function discoverDevices(){
@@ -581,6 +645,7 @@ function renderQueue(){
 async function playIndex(i){
   if(i<0 || i>=queue.length) return;
   clearTimeout(endTimer); clearTimeout(skipTimer);
+  pauseAutoDjIfOn();  // redare manuală => Auto-DJ pe pauză temporar
   const seq = ++playSeq;
   const v = queue[i];
   setStatus('Pregătesc: ' + v.title);

@@ -19,7 +19,7 @@ from flask import Flask, request, jsonify
 import requests
 import yt_dlp
 
-VERSION = '1.2.0'
+VERSION = '1.3.0'
 REPO = 'duchy-ctrl/zion-stream'
 RAW = f'https://raw.githubusercontent.com/{REPO}/main'
 FROZEN = bool(getattr(sys, 'frozen', False))
@@ -39,6 +39,49 @@ try:
         CONFIG = json.load(f)
 except Exception:
     pass
+
+# ---------- Auto-DJ: playlisturi predefinite + programare ----------
+# Playlisturile sunt CAUTARI (nu linkuri fixe) ca sa nu moara niciodata:
+# serverul ia mereu mixurile actuale de pe YouTube.
+STATE_PATH = os.path.join(DIR, 'zion-state.json')
+PRESETS = {
+    'pool': {'name': '🏊 Deep House Piscină',
+             'query': 'deep house sunset pool party mix 2025'},
+    'chill': {'name': '🌅 Dolce Far Niente',
+              'query': 'bossa nova jazz lounge chillout dinner mix'},
+}
+# activ = ultima intrare a carei ora a trecut (ordine crescatoare)
+SCHEDULE = [
+    {'from': '09:00', 'preset': 'pool'},
+    {'from': '19:30', 'preset': 'chill'},
+]
+AUTODJ = {'enabled': False, 'ip': '', 'override_until': 0}
+
+
+def load_state():
+    try:
+        with open(STATE_PATH, encoding='utf-8') as f:
+            s = json.load(f)
+        AUTODJ['enabled'] = bool(s.get('autodj_enabled', False))
+        AUTODJ['ip'] = s.get('streamer_ip', '') or ''
+    except Exception:
+        pass
+
+
+def save_state():
+    try:
+        with open(STATE_PATH, 'w', encoding='utf-8') as f:
+            json.dump({'autodj_enabled': AUTODJ['enabled'],
+                       'streamer_ip': AUTODJ['ip']}, f)
+    except Exception:
+        pass
+
+
+# permite suprascrierea programului/presetelor din zion-config.json
+if isinstance(CONFIG.get('presets'), dict):
+    PRESETS.update(CONFIG['presets'])
+if isinstance(CONFIG.get('schedule'), list) and CONFIG['schedule']:
+    SCHEDULE = CONFIG['schedule']
 
 # ---------- logging: fisier rotativ local + consola ----------
 LOG_PATH = os.path.join(DIR, 'zion-log.txt')
@@ -424,12 +467,184 @@ def playlist(pid):
         return jsonify(error=str(ex)), 500
 
 
+# ---------- Auto-DJ: redare autonoma pe server, cu programare ----------
+def _now_hm():
+    lt = time.localtime()
+    return lt.tm_hour * 60 + lt.tm_min
+
+
+def active_preset():
+    now = _now_hm()
+    chosen = SCHEDULE[-1]['preset']  # inainte de prima ora = ultimul de aseara
+    for s in SCHEDULE:
+        h, m = s['from'].split(':')
+        if now >= int(h) * 60 + int(m):
+            chosen = s['preset']
+    return chosen
+
+
+def preset_track_ids(key):
+    q = PRESETS.get(key, {}).get('query', '')
+    if not q:
+        return []
+    try:
+        with yt_dlp.YoutubeDL({**BASE, 'extract_flat': True}) as ydl:
+            info = ydl.extract_info(f'ytsearch12:{q}', download=False)
+        ids = []
+        for e in (info or {}).get('entries') or []:
+            if not e or not e.get('id'):
+                continue
+            d = e.get('duration') or 0
+            if d and d < 180:   # sarim clipurile scurte, vrem mixuri lungi
+                continue
+            ids.append(e['id'])
+        return ids[:8]
+    except Exception as ex:
+        logger.warning(f'Auto-DJ: cautare preset esuata {key}: {ex}')
+        return []
+
+
+def find_streamer_ip():
+    if AUTODJ['ip'] and IP_RE.match(AUTODJ['ip']):
+        return AUTODJ['ip']
+    import concurrent.futures
+    base = lan_ip().rsplit('.', 1)[0]
+
+    def probe(n):
+        ipa = f'{base}.{n}'
+        try:
+            r = requests.get(f'http://{ipa}/httpapi.asp?command=getStatusEx', timeout=1.0)
+            if r.ok and 'DeviceName' in r.text:
+                return ipa
+        except Exception:
+            pass
+        return None
+    with concurrent.futures.ThreadPoolExecutor(max_workers=64) as ex:
+        for res in ex.map(probe, range(1, 255)):
+            if res:
+                AUTODJ['ip'] = res
+                save_state()
+                return res
+    return ''
+
+
+def autodj_play(vid, ip):
+    try:
+        _, dur = audio_url(vid)
+    except Exception as ex:
+        logger.warning(f'Auto-DJ: resolve esuat {vid}: {ex}')
+        return 0
+    url = f'{LAN_URL}/api/audio/{vid}.mp3'
+    from urllib.parse import quote
+    try:
+        requests.get(f'http://{ip}/httpapi.asp?command=setPlayerCmd:play:{quote(url, safe="")}',
+                     timeout=5)
+    except Exception as ex:
+        logger.warning(f'Auto-DJ: comanda play esuata: {ex}')
+        return 0
+    logger.info(f'Auto-DJ: redau {vid} ({dur}s) pe {ip}')
+    return dur or 600
+
+
+def autodj_loop():
+    time.sleep(8)
+    cur_key = None
+    tracks = []
+    idx = 0
+    track_end = 0
+    while True:
+        try:
+            if not AUTODJ['enabled'] or time.time() < AUTODJ['override_until']:
+                cur_key = None  # la reactivare, reincepe preset-ul curent
+                time.sleep(15)
+                continue
+            ip = find_streamer_ip()
+            if not ip:
+                logger.warning('Auto-DJ: niciun streamer gasit, reincerc.')
+                time.sleep(30)
+                continue
+            want = active_preset()
+            need_new = (want != cur_key) or (not tracks)
+            if need_new:
+                new_tracks = preset_track_ids(want)
+                if not new_tracks:
+                    time.sleep(30)
+                    continue
+                cur_key, tracks, idx = want, new_tracks, 0
+                dur = autodj_play(tracks[idx], ip)
+                track_end = time.time() + dur + 2
+            elif time.time() >= track_end:
+                idx = (idx + 1) % len(tracks)
+                dur = autodj_play(tracks[idx], ip)
+                track_end = time.time() + dur + 2
+        except Exception:
+            logger.exception('Auto-DJ: eroare in bucla')
+        time.sleep(15)
+
+
+@app.get('/api/presets')
+def presets_list():
+    return jsonify(active=active_preset(),
+                   presets=[{'key': k, 'name': v['name']} for k, v in PRESETS.items()],
+                   schedule=SCHEDULE)
+
+
+@app.get('/api/preset/<key>')
+def preset_tracks(key):
+    # pentru redare manuala din UI: intoarce piesele preset-ului
+    if key not in PRESETS:
+        return jsonify(error='preset necunoscut'), 404
+    ids = preset_track_ids(key)
+    if not ids:
+        return jsonify(error='nu am gasit piese acum'), 502
+    out = []
+    for vid in ids:
+        try:
+            _, dur = audio_url(vid)
+        except Exception:
+            dur = 0
+        out.append({'id': vid, 'title': PRESETS[key]['name'], 'artist': '', 'duration': dur, 'thumb': ''})
+    return jsonify(name=PRESETS[key]['name'], tracks=out)
+
+
+@app.get('/api/autodj')
+def autodj_get():
+    return jsonify(enabled=AUTODJ['enabled'], ip=AUTODJ['ip'],
+                   active=active_preset(),
+                   override=max(0, int(AUTODJ['override_until'] - time.time())))
+
+
+@app.get('/api/autodj/set')
+def autodj_set():
+    on = request.args.get('on')
+    ip = request.args.get('ip', '')
+    if IP_RE.match(ip):
+        AUTODJ['ip'] = ip
+    if on is not None:
+        AUTODJ['enabled'] = on in ('1', 'true', 'on')
+        AUTODJ['override_until'] = 0
+    save_state()
+    logger.info(f'Auto-DJ set: enabled={AUTODJ["enabled"]} ip={AUTODJ["ip"]}')
+    return jsonify(ok=True, enabled=AUTODJ['enabled'], ip=AUTODJ['ip'])
+
+
+@app.get('/api/autodj/pause')
+def autodj_pause():
+    # cand cineva redă manual din UI, punem Auto-DJ pe pauza temporar
+    mins = int(request.args.get('min', '120') or 120)
+    if AUTODJ['enabled']:
+        AUTODJ['override_until'] = time.time() + mins * 60
+    return jsonify(ok=True, override_min=mins)
+
+
 if __name__ == '__main__':
     LAN_URL = f'http://{lan_ip()}:8321'
+    load_state()
     logger.info(f'Zion Stream v{VERSION} pornit ({"exe" if FROZEN else "python"}) - {LAN_URL}')
     threading.Thread(target=_self_update_ytdlp, daemon=True).start()
     threading.Thread(target=update_loop, daemon=True).start()
     threading.Thread(target=logs_loop, daemon=True).start()
+    threading.Thread(target=autodj_loop, daemon=True).start()
     print('=' * 50)
     print(f'  Zion Stream v{VERSION} pornit!')
     print('  Deschide in browser (PC sau telefon, acelasi net):')

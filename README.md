@@ -64,6 +64,29 @@ Prima folosire: deschizi aplicația → **🔍 Găsește streamerul** → alegi 
 | `version.txt` | Versiunea curentă (folosită de auto-update) |
 | `.github/workflows/build.yml` | Build automat de `ZionStream.exe` la fiecare tag `v*` |
 
+## Auto-DJ (cântă și comută singur)
+
+Serverul poate ține muzica pornită toată ziua fără să atingă nimeni nimic, cu comutare programată:
+
+- **09:00 → 🏊 Deep House Piscină**
+- **19:30 → 🌅 Dolce Far Niente** (peste noapte)
+
+Playlisturile predefinite sunt **căutări**, nu linkuri fixe — serverul ia mereu mixurile actuale de pe YouTube, deci nu „mor" niciodată. Comutarea se face pe server, deci merge chiar dacă nicio filă de browser nu e deschisă.
+
+În interfață: cardul **🎛️ Auto-DJ** → „Pornește". Cele două playlisturi apar și ca butoane, să le pornești manual oricând. Dacă redai ceva manual, Auto-DJ se pune pe pauză 2 ore, apoi reia programul.
+
+Programul și playlisturile se pot schimba din `zion-config.json` (`schedule` și `presets`). Ex.:
+
+```json
+{
+  "schedule": [{"from": "09:00", "preset": "pool"}, {"from": "19:30", "preset": "chill"}],
+  "presets": {
+    "pool":  {"name": "🏊 Deep House Piscină", "query": "deep house sunset pool mix 2025"},
+    "chill": {"name": "🌅 Dolce Far Niente", "query": "bossa nova jazz lounge mix"}
+  }
+}
+```
+
 ## Auto-update și loguri
 
 Aplicația se actualizează singură: verifică GitHub la pornire și la fiecare 6 ore, iar dacă există versiune nouă se descarcă și repornește singură. Pentru dezvoltator, publicarea unei versiuni = commit + push + tag nou `v*` (build-ul și release-ul se fac automat).
