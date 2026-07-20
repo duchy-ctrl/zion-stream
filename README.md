@@ -43,53 +43,32 @@ Interfața web (un singur fișier HTML, fără framework-uri) e servită chiar d
 - 🛟 Fallback pe instanțe publice Piped/Invidious dacă serverul local e oprit
 - 💾 Totul persistă în browser (playlisturi, coadă, setări)
 
-## Instalare (Windows)
+## Instalare (Windows) — 2 pași
 
-1. Descarcă acest repo (Code → Download ZIP) și dezarhivează-l, de ex. în `C:\ZionStream`
-2. Click dreapta pe **`instaleaza-autostart.bat`** → *Run as administrator*
+1. Descarcă [`instaleaza.bat`](https://raw.githubusercontent.com/duchy-ctrl/zion-stream/main/instaleaza.bat) (click dreapta → Save as)
+2. Click dreapta pe el → **Run as administrator**
 
-Instalatorul face totul singur: instalează Python dacă lipsește, pune dependențele, configurează pornirea automată cu Windows (pe fundal, fără ferestre), deschide portul 8321 în firewall (doar rețele private) și creează scurtătura **Zion Stream** pe Desktop.
+Atât. Instalatorul descarcă `ZionStream.exe` (ultima versiune, fără Python, fără dependențe), îl pune să pornească singur cu Windows-ul, deschide firewall-ul și îți lasă scurtătura **Zion Stream** pe Desktop.
 
-3. Deschide aplicația (scurtătura de pe Desktop sau `http://IP-PC:8321` de pe telefon)
-4. Apasă **🔍 Găsește streamerul** → alege dispozitivul → **Testează conexiunea**
-5. Caută o piesă → ▶
-
-Pentru depanare, rulează `porneste-server.bat` — pornește serverul cu mesajele vizibile într-o fereastră.
+Prima folosire: deschizi aplicația → **🔍 Găsește streamerul** → alegi dispozitivul → cauți o piesă → ▶. De pe telefon: `http://IP-PC:8321` (același WiFi).
 
 ## Structura
 
 | Fișier | Rol |
 |---|---|
+| `instaleaza.bat` | Instalatorul — singurul fișier de care are nevoie utilizatorul |
 | `zion-stream.html` | Interfața web (vanilla JS, un singur fișier) |
-| `zion-server.py` | Server Flask: căutare, extracție, releu audio, proxy comenzi, descoperire LAN |
-| `instaleaza-autostart.bat` | Instalator complet (o singură rulare, ca Administrator) |
-| `porneste-server.bat` | Pornire manuală, cu consolă vizibilă (depanare) |
+| `zion-server.py` | Serverul: căutare, extracție, releu audio, comenzi streamer |
+| `porneste-server.bat` | Pentru dezvoltare: rulează serverul din sursă, cu consolă |
 | `tests/test-harness.js` | Teste funcționale pentru logica UI (node) |
-| `version.txt` | Versiunea curentă — motorul auto-update-ului |
-| `zion-config.exemplu.json` | Model pentru configul local (token loguri, auto-update) |
+| `version.txt` | Versiunea curentă (folosită de auto-update) |
 | `.github/workflows/build.yml` | Build automat de `ZionStream.exe` la fiecare tag `v*` |
 
-## Auto-update
+## Auto-update și loguri
 
-Serverul verifică GitHub la pornire și apoi la fiecare 6 ore:
+Aplicația se actualizează singură: verifică GitHub la pornire și la fiecare 6 ore, iar dacă există versiune nouă se descarcă și repornește singură. Pentru dezvoltator, publicarea unei versiuni = commit + push + tag nou `v*` (build-ul și release-ul se fac automat).
 
-- **rulat din sursă (Python)**: compară `version.txt` din repo cu versiunea locală; dacă e mai nouă, descarcă `zion-server.py` + `zion-stream.html` din `main` și repornește singur
-- **rulat ca `ZionStream.exe`**: compară cu ultimul release; dacă e mai nou, descarcă exe-ul, se înlocuiește singur și repornește
-
-Deci: faci modificări → commit + push → crești `version.txt` (și `VERSION` din `zion-server.py`) → toate PC-urile se actualizează singure în cel mult 6 ore. Pentru exe: creezi un tag `v1.2.0` → GitHub Actions construiește și publică release-ul automat.
-
-Se dezactivează cu `"auto_update": false` în `zion-config.json`.
-
-## Loguri
-
-- Local: `zion-log.txt` (rotativ, max ~1 MB), vizibil și în browser la `http://IP-PC:8321/api/logs`
-- **Upload în repo** (opțional): copiezi `zion-config.exemplu.json` → `zion-config.json`, pui un token GitHub *fine-grained* (doar repo-ul ăsta, permisiune „Contents: read/write") și serverul urcă logurile în `logs/NUME-PC.txt` la fiecare 10 minute — le putem citi de oriunde pentru depanare
-
-⚠️ `zion-config.json` conține token-ul și e blocat prin `.gitignore` — nu-l urca niciodată în git și nu da token-ului acces la alte repo-uri.
-
-## Build Windows (.exe)
-
-La fiecare tag `v*` împins în repo, GitHub Actions construiește `ZionStream.exe` (PyInstaller, un singur fișier, cu interfața inclusă) și îl atașează la Release. Exe-ul nu are nevoie de Python instalat — doar îl pui în `C:\ZionStream` și îl rulezi; restul (autostart, firewall) se face tot cu `instaleaza-autostart.bat` sau manual.
+Logurile sunt în `zion-log.txt` lângă aplicație și în browser la `http://IP-PC:8321/api/logs` — dacă ceva nu merge, deschizi adresa aia și trimiți ce scrie. (Opțional, pentru depanare de la distanță, logurile pot urca automat în repo — vezi `zion-config.exemplu.json`.)
 
 ## Teste
 
