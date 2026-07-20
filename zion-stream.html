@@ -278,7 +278,8 @@ async function resolveAudio(id){
     const j = await localGet('/api/resolve/' + id);
     if(j.url){
       const base = await ensureLan();
-      return {url: base + '/api/audio/' + id, duration: j.duration||0};
+      // .mp3 => serverul convertește în MP3 (formatul pe care Arylic îl redă sigur)
+      return {url: base + '/api/audio/' + id + '.mp3', duration: j.duration||0};
     }
   }catch(e){}
   let fallback = null;

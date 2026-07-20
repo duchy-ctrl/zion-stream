@@ -20,8 +20,15 @@ jobs:
       - name: Instaleaza dependentele
         run: pip install pyinstaller flask requests yt-dlp
 
-      - name: Build exe (PyInstaller, un singur fisier)
-        run: pyinstaller --onefile --name ZionStream --add-data "zion-stream.html;." zion-server.py
+      - name: Descarca ffmpeg (pentru conversie in MP3)
+        shell: pwsh
+        run: |
+          curl -L -o ffmpeg.zip https://github.com/GyanD/codexffmpeg/releases/download/7.1/ffmpeg-7.1-essentials_build.zip
+          Expand-Archive -Path ffmpeg.zip -DestinationPath ffmpeg_tmp -Force
+          Copy-Item (Get-ChildItem -Recurse -Filter ffmpeg.exe ffmpeg_tmp | Select-Object -First 1).FullName -Destination ffmpeg.exe
+
+      - name: Build exe (PyInstaller, un singur fisier, cu ffmpeg inclus)
+        run: pyinstaller --onefile --name ZionStream --add-data "zion-stream.html;." --add-binary "ffmpeg.exe;." zion-server.py
 
       - name: Publica release cu exe-ul
         uses: softprops/action-gh-release@v2

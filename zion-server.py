@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -18,7 +19,7 @@ from flask import Flask, request, jsonify
 import requests
 import yt_dlp
 
-VERSION = '1.1.0'
+VERSION = '1.2.0'
 REPO = 'duchy-ctrl/zion-stream'
 RAW = f'https://raw.githubusercontent.com/{REPO}/main'
 FROZEN = bool(getattr(sys, 'frozen', False))
@@ -72,6 +73,15 @@ def lan_ip():
         return ip
     except Exception:
         return '127.0.0.1'
+
+
+def ffmpeg_path():
+    # bundle langa exe / in sursa, altfel din PATH
+    exe = 'ffmpeg.exe' if os.name == 'nt' else 'ffmpeg'
+    for c in (os.path.join(ASSET_DIR, exe), os.path.join(DIR, exe)):
+        if os.path.exists(c):
+            return c
+    return shutil.which('ffmpeg') or ''
 
 
 # ---------- auto-update din GitHub ----------
@@ -275,10 +285,47 @@ def resolve(vid):
         return jsonify(error=str(ex)), 500
 
 
+@app.get('/api/audio/<vid>.mp3')
+def audio_mp3(vid):
+    # Releu + conversie in MP3: streamerele Linkplay/Arylic redau sigur MP3 pe HTTP,
+    # dar nu si containerul m4a/webm venit de la YouTube. Convertim din mers cu ffmpeg.
+    if not VID_RE.match(vid):
+        return jsonify(error='id invalid'), 400
+    ff = ffmpeg_path()
+    if not ff:
+        logger.warning('ffmpeg lipseste - trec pe audio brut')
+        return audio(vid)
+    try:
+        url, _ = audio_url(vid)
+    except Exception as ex:
+        logger.warning(f'Audio(mp3) esuat {vid}: {ex}')
+        return jsonify(error=str(ex)), 500
+    args = [ff, '-hide_banner', '-loglevel', 'error', '-reconnect', '1',
+            '-reconnect_streamed', '1', '-i', url,
+            '-vn', '-f', 'mp3', '-ab', '192k', '-']
+    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+
+    def gen():
+        try:
+            while True:
+                chunk = proc.stdout.read(65536)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+
+    logger.info(f'Redau (mp3 via ffmpeg) {vid}')
+    return app.response_class(gen(), mimetype='audio/mpeg')
+
+
 @app.get('/api/audio/<vid>')
 def audio(vid):
-    # Releu audio: streamerul (care nu stie HTTPS) primeste HTTP simplu din LAN,
-    # iar serverul trage sunetul de la YouTube si il trece mai departe.
+    # Releu audio brut (fallback fara ffmpeg): trece sunetul de la YouTube mai departe.
     if not VID_RE.match(vid):
         return jsonify(error='id invalid'), 400
     try:
