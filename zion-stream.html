@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Zion Stream – YouTube pe boxe</title>
+<style>
+  :root{--bg:#101418;--card:#1a2129;--accent:#2ecc71;--txt:#e8eef4;--mut:#8a99a8;--red:#e74c3c;}
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+  body{background:var(--bg);color:var(--txt);font-family:system-ui,Roboto,sans-serif;padding:12px;padding-bottom:150px;max-width:640px;margin:0 auto;}
+  h1{font-size:20px;margin:6px 0 12px;display:flex;align-items:center;gap:8px;}
+  h1 .dot{width:10px;height:10px;border-radius:50%;background:var(--red);display:inline-block;}
+  h1 .dot.on{background:var(--accent);}
+  .card{background:var(--card);border-radius:12px;padding:12px;margin-bottom:12px;}
+  label{font-size:12px;color:var(--mut);display:block;margin-bottom:4px;}
+  input[type=text]{width:100%;padding:12px;border-radius:8px;border:1px solid #2c3742;background:#0d1117;color:var(--txt);font-size:16px;}
+  .row{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;}
+  button{border:none;border-radius:8px;padding:12px 14px;font-size:15px;font-weight:600;background:#2c3742;color:var(--txt);}
+  button:active{opacity:.7;}
+  button.primary{background:var(--accent);color:#08130c;}
+  button.small{padding:8px 10px;font-size:13px;}
+  button.tiny{padding:6px 9px;font-size:12px;}
+  .result,.qitem,.plrow,.pltrack{display:flex;gap:8px;align-items:center;padding:8px;border-radius:10px;margin-top:8px;background:#141a21;}
+  .result img{width:72px;height:40px;object-fit:cover;border-radius:6px;flex-shrink:0;}
+  .meta{flex:1;min-width:0;}
+  .meta .t{font-size:14px;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+  .meta .s{font-size:12px;color:var(--mut);margin-top:2px;}
+  .qitem.playing{outline:2px solid var(--accent);}
+  #status{font-size:13px;color:var(--mut);min-height:18px;margin-top:6px;}
+  #player{position:fixed;bottom:0;left:0;right:0;background:#0d1117;border-top:1px solid #2c3742;padding:10px 14px;max-width:640px;margin:0 auto;}
+  #np{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  #np small{color:var(--mut);font-weight:400;}
+  .controls{display:flex;gap:8px;align-items:center;margin-top:8px;}
+  .controls button{flex:0 0 auto;font-size:18px;padding:10px 14px;}
+  .controls button.tog{font-size:14px;padding:10px;}
+  .controls button.tog.on{background:var(--accent);color:#08130c;}
+  input[type=range]{flex:1;accent-color:var(--accent);}
+  details summary{cursor:pointer;color:var(--mut);font-size:13px;}
+  .empty{color:var(--mut);font-size:13px;padding:10px 0;}
+  #modal{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:flex-end;justify-content:center;z-index:10;}
+  #modal .box{background:var(--card);border-radius:16px 16px 0 0;padding:16px;width:100%;max-width:640px;max-height:70vh;overflow:auto;}
+  #modal .opt{display:block;width:100%;text-align:left;margin-top:8px;background:#141a21;}
+  .plhead{font-size:15px;font-weight:700;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .pltracks{margin-left:6px;border-left:2px solid #2c3742;padding-left:6px;}
+</style>
+</head>
+<body>
+<h1><span class="dot" id="connDot"></span>Zion Stream <small style="color:var(--mut);font-size:13px;font-weight:400">YouTube → Bose/Arylic</small></h1>
+
+<div class="card" id="setup">
+  <label>IP-ul streamerului Arylic (4Stream → setările dispozitivului → Speaker Info, sau în router)</label>
+  <input type="text" id="ip" placeholder="ex: 192.168.1.50" inputmode="decimal">
+  <div class="row">
+    <button class="primary" onclick="saveIp()">Salvează</button>
+    <button onclick="testConn()">Testează conexiunea</button>
+    <button onclick="discoverDevices()">🔍 Găsește streamerul</button>
+  </div>
+  <label style="margin-top:10px">Server local Zion (PC-ul cu porneste-server.bat — cea mai stabilă sursă)</label>
+  <input type="text" id="localSrv" placeholder="ex: http://192.168.2.10:8321" inputmode="url">
+  <div class="row">
+    <button class="small primary" onclick="saveLocalSrv()">Salvează serverul</button>
+    <button class="small" onclick="testLocalSrv()">Testează serverul</button>
+  </div>
+  <details style="margin-top:10px">
+    <summary>Setări avansate (server de căutare)</summary>
+    <label style="margin-top:8px">Instanță Piped preferată</label>
+    <select id="pipedSel" onchange="pinPiped()" style="width:100%;padding:12px;border-radius:8px;border:1px solid #2c3742;background:#0d1117;color:var(--txt);font-size:15px"></select>
+    <div class="row"><button class="small primary" onclick="checkInstances()">Verifică toate instanțele</button></div>
+    <div id="instStatus" style="font-size:12px;color:var(--mut);margin-top:4px"></div>
+    <label style="margin-top:10px">Sau adaugă manual altă instanță (are prioritate)</label>
+    <input type="text" id="pipedCustom" placeholder="ex: https://pipedapi.exemplu.com">
+    <div class="row"><button class="small" onclick="savePiped()">Salvează instanța</button></div>
+  </details>
+  <div id="status"></div>
+</div>
+
+<div class="card">
+  <label>Caută pe YouTube</label>
+  <input type="text" id="q" placeholder="ex: Andra Sudamericana" onkeydown="if(event.key==='Enter')doSearch()">
+  <div class="row">
+    <button class="primary" style="flex:1" onclick="doSearch()">Caută</button>
+    <button onclick="pasteLink()">Am un link</button>
+  </div>
+  <div id="results"></div>
+</div>
+
+<div class="card">
+  <div style="display:flex;align-items:center">
+    <label style="flex:1;margin:0">Playlisturile mele</label>
+    <button class="small primary" onclick="newPlaylist()">+ Playlist nou</button>
+  </div>
+  <div id="playlists"></div>
+</div>
+
+<div class="card">
+  <label>Coada de redare (ce cântă acum)</label>
+  <div id="queue"><div class="empty">Coada e goală. Caută o piesă sau pornește un playlist.</div></div>
+  <div class="row">
+    <button class="small" onclick="clearQueue()">Golește coada</button>
+    <button class="small" onclick="queueToPlaylist()">Salvează coada ca playlist</button>
+  </div>
+</div>
+
+<div id="player">
+  <div id="np"><small>Nimic în redare</small></div>
+  <div class="controls">
+    <button onclick="prevTrack()">⏮</button>
+    <button id="ppBtn" class="primary" onclick="togglePause()">⏸</button>
+    <button onclick="nextTrack()">⏭</button>
+    <button id="shufBtn" class="tog" onclick="toggleShuffle()" title="Amestecă">🔀</button>
+    <button id="repBtn" class="tog" onclick="toggleRepeat()" title="Repetă coada">🔁</button>
+    <input type="range" id="vol" min="0" max="100" value="40" onchange="setVol(this.value)">
+  </div>
+</div>
+
+<div id="modal" onclick="if(event.target===this)closeModal()"><div class="box" id="modalBox"></div></div>
+
+<script>
+const PIPED_DEFAULTS = [
+  'https://api.piped.private.coffee',   // verificată, funcționa în iul. 2026
+  'https://pipedapi.kavin.rocks',       // oficială
+  'https://pipedapi-libre.kavin.rocks', // oficială
+  'https://pipedapi.adminforge.de',
+  'https://pipedapi.reallyaweso.me',
+  'https://pipedapi.leptons.xyz',
+  'https://pipedapi.nosebs.ru',
+  'https://piped-api.privacy.com.de',
+  'https://api.piped.yt',
+  'https://pipedapi.drgns.space',
+  'https://pipedapi.owo.si',
+  'https://pipedapi.ducks.party',
+  'https://piped-api.codespace.cz',
+  'https://pipedapi.darkness.services',
+  'https://pipedapi.orangenet.cc'
+];
+const INVID_DEFAULTS = [
+  'https://yewtu.be',
+  'https://inv.nadeko.net',
+  'https://invidious.f5.si'
+];
+let ip = localStorage.getItem('arylicIp') || '';
+let queue = JSON.parse(localStorage.getItem('queue') || '[]');
+let playlists = JSON.parse(localStorage.getItem('playlists') || '[]');
+let cur = parseInt(localStorage.getItem('cur') || '-1');
+let shuffle = localStorage.getItem('shuffle') === '1';
+let repeat = localStorage.getItem('repeat') === '1';
+let paused = false, endTimer = null, skipTimer = null, trackStart = 0, pausedAt = 0, curDuration = 0;
+let openPl = -1, playSeq = 0, played = new Set();
+
+document.getElementById('ip').value = ip;
+document.getElementById('pipedCustom').value = localStorage.getItem('pipedCustom') || '';
+document.getElementById('localSrv').value = localStorage.getItem('localSrv') || '';
+if(!localStorage.getItem('localSrv') && location.protocol.indexOf('http')===0){
+  document.getElementById('localSrv').placeholder = 'automat: ' + location.origin;
+}
+renderQueue(); renderPlaylists(); syncToggles(); renderPipedSel();
+
+function persist(){
+  localStorage.setItem('queue', JSON.stringify(queue));
+  localStorage.setItem('playlists', JSON.stringify(playlists));
+  localStorage.setItem('cur', cur);
+  localStorage.setItem('shuffle', shuffle?'1':'0');
+  localStorage.setItem('repeat', repeat?'1':'0');
+}
+function setStatus(m, ok){ const s=document.getElementById('status'); s.textContent=m; s.style.color = ok===false?'var(--red)':(ok?'var(--accent)':'var(--mut)'); }
+function saveIp(){ ip = document.getElementById('ip').value.trim(); localStorage.setItem('arylicIp', ip); setStatus('IP salvat: '+ip, true); }
+function savePiped(){ localStorage.setItem('pipedCustom', document.getElementById('pipedCustom').value.trim()); setStatus('Instanță salvată.', true); }
+function pipedList(){
+  const list = [];
+  const c = localStorage.getItem('pipedCustom'); if(c) list.push(c);
+  const p = localStorage.getItem('pipedPinned'); if(p && list.indexOf(p)===-1) list.push(p);
+  const g = localStorage.getItem('lastGoodPiped'); if(g && list.indexOf(g)===-1) list.push(g);
+  PIPED_DEFAULTS.forEach(b=>{ if(list.indexOf(b)===-1) list.push(b); });
+  return list;
+}
+
+function renderPipedSel(labels){
+  const sel = document.getElementById('pipedSel');
+  const pinned = localStorage.getItem('pipedPinned') || '';
+  sel.innerHTML = '';
+  const auto = document.createElement('option');
+  auto.value=''; auto.textContent='Automat — încearcă pe rând (recomandat)';
+  sel.appendChild(auto);
+  PIPED_DEFAULTS.forEach(b=>{
+    const o = document.createElement('option');
+    o.value = b;
+    o.textContent = b.replace('https://','') + (labels && labels[b] ? '  ' + labels[b] : '');
+    if(b===pinned) o.selected = true;
+    sel.appendChild(o);
+  });
+}
+function pinPiped(){
+  const v = document.getElementById('pipedSel').value;
+  if(v) localStorage.setItem('pipedPinned', v); else localStorage.removeItem('pipedPinned');
+  setStatus(v ? 'Instanță preferată: '+v : 'Mod automat.', true);
+}
+async function checkInstances(){
+  const st = document.getElementById('instStatus');
+  st.textContent = 'Verific '+PIPED_DEFAULTS.length+' instanțe (max ~15s)...';
+  const labels = {};
+  await Promise.all(PIPED_DEFAULTS.map(async b=>{
+    try{
+      const r = await fetch(b + '/streams/dQw4w9WgXcQ', {signal: TO(12000)});
+      if(!r.ok) throw 0;
+      const j = await r.json();
+      if(j.error) throw 0;
+      labels[b] = (j.audioStreams||[]).length ? '✅ audio' : '🟡 doar fallback';
+    }catch(e){ labels[b] = '❌'; }
+  }));
+  renderPipedSel(labels);
+  const ok = Object.values(labels).filter(x=>x.indexOf('✅')===0).length;
+  const part = Object.values(labels).filter(x=>x.indexOf('🟡')===0).length;
+  st.textContent = 'Rezultat: '+ok+' cu audio direct, '+part+' parțiale, '+(PIPED_DEFAULTS.length-ok-part)+' picate. Alege una cu ✅.';
+}
+
+async function pipedGet(path){
+  let lastErr;
+  for(const base of pipedList()){
+    try{
+      const r = await fetch(base + path, {signal: TO(6000)});
+      if(r.ok){ const j = await r.json(); if(!j.error){ localStorage.setItem('lastGoodPiped', base); return j; } }
+    }catch(e){ lastErr = e; }
+  }
+  throw lastErr || new Error('Niciun server de căutare nu răspunde');
+}
+
+// ---- Server local yt-dlp (sursa preferată) ----
+let lanBase = null; // adresa LAN a serverului, pe care o poate accesa și streamerul
+function localSrv(){
+  const v = (localStorage.getItem('localSrv')||'').replace(/\/+$/,'');
+  if(v) return v;
+  // dacă pagina e servită chiar de serverul Zion, folosește-l automat
+  if(location.protocol.indexOf('http')===0) return location.origin;
+  return '';
+}
+function saveLocalSrv(){
+  let v = document.getElementById('localSrv').value.trim();
+  if(v && v.indexOf('http')!==0) v = 'http://' + v;
+  localStorage.setItem('localSrv', v);
+  document.getElementById('localSrv').value = v;
+  setStatus(v ? 'Server local salvat: '+v : 'Server local șters.', true);
+}
+async function testLocalSrv(){
+  const s = localSrv();
+  if(!s){ setStatus('Scrie adresa serverului (o afișează fereastra neagră de pe PC).', false); return; }
+  setStatus('Testez serverul local...');
+  try{
+    const r = await fetch(s + '/api/ping', {signal: TO(5000)});
+    const j = await r.json();
+    if(j.ok){
+      if(j.lan) lanBase = j.lan.replace(/\/+$/,'');
+      setStatus('Server local funcțional! Va fi folosit ca sursă principală.', true);
+      return;
+    }
+    throw 0;
+  }catch(e){ setStatus('Serverul local nu răspunde la '+s+'. E pornit? Același WiFi?', false); }
+}
+async function ensureLan(){
+  if(lanBase) return lanBase;
+  try{
+    const j = await localGet('/api/ping');
+    if(j.lan) lanBase = j.lan.replace(/\/+$/,'');
+  }catch(e){}
+  return lanBase || localSrv();
+}
+async function localGet(path){
+  const s = localSrv(); if(!s) throw new Error('fără server local');
+  const r = await fetch(s + path, {signal: TO(20000)});
+  if(!r.ok) throw new Error('server local: eroare');
+  return await r.json();
+}
+
+// Rezolvă URL-ul audio pentru un video, cu mai multe surse de rezervă
+async function resolveAudio(id){
+  // 0) Serverul local yt-dlp — cel mai stabil. Redăm prin RELEUL HTTP al serverului
+  // (streamerele Linkplay vechi nu știu HTTPS, deci le dăm HTTP simplu din LAN).
+  try{
+    const j = await localGet('/api/resolve/' + id);
+    if(j.url){
+      const base = await ensureLan();
+      return {url: base + '/api/audio/' + id, duration: j.duration||0};
+    }
+  }catch(e){}
+  let fallback = null;
+  // 1) Piped: audioStreams, apoi video+audio proxy-at (itag 18), apoi HLS
+  for(const base of pipedList()){
+    try{
+      const r = await fetch(base + '/streams/' + id, {signal: TO(8000)});
+      if(!r.ok) continue;
+      const j = await r.json();
+      if(j.error) continue;
+      const auds = (j.audioStreams||[]).filter(a=>a.url);
+      if(auds.length){
+        auds.sort((a,b)=>(b.bitrate||0)-(a.bitrate||0));
+        return {url: auds[0].url, duration: j.duration||0};
+      }
+      if(!fallback){
+        const vs = (j.videoStreams||[]).filter(v=>v.url && v.videoOnly===false && v.itag>0);
+        if(vs.length) fallback = {url: vs[0].url, duration: j.duration||0};
+        else if(j.hls) fallback = {url: j.hls, duration: j.duration||0};
+      }
+    }catch(e){}
+  }
+  // 2) Invidious: adaptiveFormats audio, proxy-at prin instanță
+  for(const base of INVID_DEFAULTS){
+    try{
+      const r = await fetch(base + '/api/v1/videos/' + id + '?local=true', {signal: TO(8000)});
+      if(!r.ok) continue;
+      const j = await r.json();
+      const auds = (j.adaptiveFormats||[]).filter(a=>a.url && (a.type||'').indexOf('audio')===0);
+      if(auds.length){
+        auds.sort((a,b)=>(parseInt(b.bitrate)||0)-(parseInt(a.bitrate)||0));
+        let u = auds[0].url;
+        if(u.charAt(0)==='/') u = base + u;
+        return {url: u, duration: j.lengthSeconds||0};
+      }
+    }catch(e){}
+  }
+  if(fallback) return fallback;
+  throw new Error('nicio sursă nu are stream pentru piesa asta acum');
+}
+
+// ---- Comenzi Arylic (Linkplay HTTP API) ----
+function TO(ms){ return (typeof AbortSignal!=='undefined' && AbortSignal.timeout) ? AbortSignal.timeout(ms) : undefined; }
+// comandă către streamer: preferă proxy-ul serverului local (răspuns citibil),
+// altfel direct no-cors (Linkplay nu are antete CORS, răspunsul nu se poate citi)
+async function cmd(c){
+  if(!ip){ setStatus('Setează mai întâi IP-ul streamerului.', false); throw new Error('no ip'); }
+  const s = localSrv();
+  if(s){
+    try{
+      const r = await fetch(s + '/api/cmd?ip=' + ip + '&c=' + encodeURIComponent(c), {signal: TO(7000)});
+      if(r.ok) return await r.text();
+    }catch(e){}
+  }
+  await fetch('http://' + ip + '/httpapi.asp?command=' + c, {mode:'no-cors', signal: TO(5000)});
+  return null;
+}
+// pentru test: ca cmd, dar încearcă și citirea directă dacă nu există server local
+async function cmdRead(c){
+  const t = await cmd(c);
+  if(t !== null) return t;
+  try{
+    const r = await fetch('http://' + ip + '/httpapi.asp?command=' + c, {signal: TO(5000)});
+    return await r.text();
+  }catch(e){ return null; }
+}
+
+async function discoverDevices(){
+  if(!localSrv()){ setStatus('Căutarea automată are nevoie de serverul local (pornit pe PC).', false); return; }
+  setStatus('Scanez rețeaua după streamere (10-15 secunde)...');
+  try{
+    const list = await fetch(localSrv() + '/api/discover', {signal: TO(30000)}).then(r=>r.json());
+    if(!list.length){ setStatus('Nu am găsit niciun streamer Linkplay/Arylic în rețea. E pornit? E în aceeași rețea cu PC-ul?', false); return; }
+    if(list.length === 1){
+      ip = list[0].ip; localStorage.setItem('arylicIp', ip);
+      document.getElementById('ip').value = ip;
+      document.getElementById('connDot').classList.add('on');
+      setStatus('Găsit și salvat: „' + list[0].name + '" la ' + list[0].ip, true);
+      return;
+    }
+    const box = document.getElementById('modalBox');
+    box.innerHTML = '<label>Am găsit mai multe — alege streamerul:</label>';
+    list.forEach(d=>{
+      const b = document.createElement('button'); b.className='opt';
+      b.textContent = d.name + ' — ' + d.ip;
+      b.onclick = ()=>{
+        ip = d.ip; localStorage.setItem('arylicIp', ip);
+        document.getElementById('ip').value = ip;
+        document.getElementById('connDot').classList.add('on');
+        closeModal(); setStatus('Salvat: „' + d.name + '" la ' + d.ip, true);
+      };
+      box.appendChild(b);
+    });
+    document.getElementById('modal').style.display='flex';
+  }catch(e){ setStatus('Scanarea a eșuat. Serverul local e pornit?', false); }
+}
+
+async function testConn(){
+  setStatus('Testez...');
+  try{
+    const t = await cmdRead('getStatusEx');
+    document.getElementById('connDot').classList.add('on');
+    if(t){ try{ const j = JSON.parse(t); setStatus('Conectat la: ' + (j.DeviceName || 'dispozitiv Arylic'), true); return; }catch(e){} }
+    setStatus('Comanda a fost trimisă către ' + ip + '. Dacă boxele reacționează la volum/play, e ok.', true);
+  }catch(e){
+    document.getElementById('connDot').classList.remove('on');
+    setStatus('Nu pot ajunge la ' + ip + '. Verifică IP-ul și că ești pe același WiFi.', false);
+  }
+}
+
+// ---- Căutare ----
+function fmtDur(s){ s=Math.round(s||0); if(s<=0) return 'LIVE/nedefinit'; const h=Math.floor(s/3600); return (h?h+':':'')+String(Math.floor(s/60)%60).padStart(h?2:1,'0')+':'+String(s%60).padStart(2,'0'); }
+function vid(item){ return { id: (item.url||'').split('v=')[1] || item.url, title: item.title, artist: item.uploaderName||item.uploader||'', duration: item.duration||0, thumb: item.thumbnail||'' }; }
+
+async function doSearch(){
+  const q = document.getElementById('q').value.trim(); if(!q) return;
+  const box = document.getElementById('results');
+  box.innerHTML = '<div class="empty">Caut...</div>';
+  let list = null;
+  try{ list = await localGet('/api/search?q=' + encodeURIComponent(q)); }catch(e){}
+  try{
+    if(!list){
+      const j = await pipedGet('/search?q=' + encodeURIComponent(q) + '&filter=videos');
+      list = (j.items||[]).filter(i=>i.type==='stream').slice(0,10).map(vid);
+    }
+    if(!list.length){ box.innerHTML = '<div class="empty">Niciun rezultat.</div>'; return; }
+    box.innerHTML = '';
+    list.forEach(v=>{
+      const d = document.createElement('div'); d.className='result';
+      d.innerHTML = `<img onerror="this.style.display='none'">
+        <div class="meta"><div class="t"></div><div class="s"></div></div>
+        <button class="tiny primary">▶</button><button class="tiny">+Coadă</button><button class="tiny">+PL</button>`;
+      d.querySelector('img').src = v.thumb || '';
+      d.querySelector('.t').textContent = v.title;
+      d.querySelector('.s').textContent = (v.artist||'') + ' · ' + fmtDur(v.duration);
+      const b = d.querySelectorAll('button');
+      b[0].onclick = ()=>{ queue.push(v); persist(); renderQueue(); playIndex(queue.length-1); };
+      b[1].onclick = ()=>{ queue.push(v); persist(); renderQueue(); setStatus('Adăugat în coadă: '+v.title, true); };
+      b[2].onclick = ()=>pickPlaylist(v);
+      box.appendChild(d);
+    });
+  }catch(e){ box.innerHTML = '<div class="empty">Căutarea nu merge acum. Încearcă altă instanță Piped din Setări avansate.</div>'; }
+}
+
+async function pasteLink(){
+  let link = '';
+  try{ link = await navigator.clipboard.readText(); }catch(e){}
+  link = prompt('Lipește linkul de YouTube (piesă sau playlist):', link || '') || '';
+  const pl = link.match(/[?&]list=([A-Za-z0-9_-]+)/);
+  const m = link.match(/(?:v=|youtu\.be\/|shorts\/)([A-Za-z0-9_-]{11})/);
+  // dacă linkul are și piesă și playlist, piesa are prioritate (list=RD... sunt mixuri auto, neimportabile)
+  if(!m && pl){
+    if(pl[1].indexOf('RD')===0){ setStatus('Mixurile automate YouTube (list=RD...) nu se pot importa.', false); return; }
+    return importYtPlaylist(pl[1]);
+  }
+  if(!m){ setStatus('Nu recunosc linkul.', false); return; }
+  setStatus('Iau detaliile piesei...');
+  let track = null;
+  try{
+    const j = await pipedGet('/streams/' + m[1]);
+    track = {id:m[1], title:j.title, artist:j.uploader||'', duration:j.duration||0, thumb:(j.thumbnailUrl||'')};
+  }catch(e){
+    track = {id:m[1], title:'YouTube ' + m[1], artist:'', duration:0, thumb:''};
+  }
+  queue.push(track);
+  persist(); renderQueue();
+  playIndex(queue.length-1);
+}
+
+async function importYtPlaylist(listId){
+  setStatus('Import playlist de pe YouTube...');
+  try{
+    let tracks = null, plName = 'Playlist YouTube';
+    try{
+      const lj = await localGet('/api/playlist/' + listId);
+      if(lj.tracks && lj.tracks.length){ tracks = lj.tracks; plName = lj.name || plName; }
+    }catch(e){}
+    if(!tracks){
+      const j = await pipedGet('/playlists/' + listId);
+      tracks = (j.relatedStreams||[]).map(vid).filter(v=>v.id && v.id.length===11);
+      plName = j.name || plName;
+    }
+    if(!tracks.length) throw new Error('gol');
+    const name = prompt('Nume pentru playlist:', plName) || plName;
+    playlists.push({name, tracks});
+    persist(); renderPlaylists();
+    setStatus('Importat „'+name+'" ('+tracks.length+' piese).', true);
+  }catch(e){ setStatus('Nu am putut importa playlistul.', false); }
+}
+
+// ---- Playlisturi ----
+function newPlaylist(){
+  const name = prompt('Numele playlistului:');
+  if(!name) return;
+  playlists.push({name, tracks:[]});
+  persist(); renderPlaylists();
+}
+function pickPlaylist(v){
+  const box = document.getElementById('modalBox');
+  box.innerHTML = '<label>Adaugă „'+esc(v.title)+'" în:</label>';
+  playlists.forEach((p,i)=>{
+    const b = document.createElement('button'); b.className='opt';
+    b.textContent = p.name + ' (' + p.tracks.length + ' piese)';
+    b.onclick = ()=>{ p.tracks.push(v); persist(); renderPlaylists(); closeModal(); setStatus('Adăugat în „'+p.name+'".', true); };
+    box.appendChild(b);
+  });
+  const nb = document.createElement('button'); nb.className='opt primary';
+  nb.textContent = '+ Playlist nou...';
+  nb.onclick = ()=>{ const name = prompt('Numele playlistului:'); if(!name) return; playlists.push({name, tracks:[v]}); persist(); renderPlaylists(); closeModal(); setStatus('Creat „'+name+'".', true); };
+  box.appendChild(nb);
+  document.getElementById('modal').style.display='flex';
+}
+function closeModal(){ document.getElementById('modal').style.display='none'; }
+function esc(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+function playPlaylist(i, shuf){
+  const p = playlists[i];
+  if(!p || !p.tracks.length){ setStatus('Playlistul e gol.', false); return; }
+  queue = p.tracks.slice();
+  if(shuf){ for(let k=queue.length-1;k>0;k--){ const r=Math.floor(Math.random()*(k+1)); [queue[k],queue[r]]=[queue[r],queue[k]]; } }
+  cur = -1; played.clear(); persist(); renderQueue();
+  playIndex(0);
+  setStatus('Pornesc playlistul „'+p.name+'"'+(shuf?' (amestecat)':''), true);
+}
+function queueToPlaylist(){
+  if(!queue.length){ setStatus('Coada e goală.', false); return; }
+  const name = prompt('Numele playlistului:');
+  if(!name) return;
+  playlists.push({name, tracks: queue.slice()});
+  persist(); renderPlaylists();
+  setStatus('Salvat „'+name+'" ('+queue.length+' piese).', true);
+}
+function renderPlaylists(){
+  const box = document.getElementById('playlists');
+  if(!playlists.length){ box.innerHTML = '<div class="empty">Niciun playlist încă. Creează unul sau importă un link de playlist YouTube cu „Am un link".</div>'; return; }
+  box.innerHTML = '';
+  playlists.forEach((p,i)=>{
+    const d = document.createElement('div'); d.className='plrow';
+    d.innerHTML = `<div class="plhead"></div><span class="s" style="color:var(--mut);font-size:12px">${p.tracks.length} piese</span>
+      <button class="tiny primary">▶</button><button class="tiny">🔀</button><button class="tiny">${openPl===i?'▲':'▼'}</button><button class="tiny">✕</button>`;
+    d.querySelector('.plhead').textContent = p.name;
+    const b = d.querySelectorAll('button');
+    b[0].onclick = ()=>playPlaylist(i,false);
+    b[1].onclick = ()=>playPlaylist(i,true);
+    b[2].onclick = ()=>{ openPl = openPl===i? -1 : i; renderPlaylists(); };
+    b[3].onclick = ()=>{ if(confirm('Ștergi playlistul „'+p.name+'"?')){ playlists.splice(i,1); if(openPl===i)openPl=-1; persist(); renderPlaylists(); } };
+    box.appendChild(d);
+    if(openPl===i){
+      const tr = document.createElement('div'); tr.className='pltracks';
+      if(!p.tracks.length) tr.innerHTML = '<div class="empty">Gol. Adaugă piese din căutare cu „+PL".</div>';
+      p.tracks.forEach((v,k)=>{
+        const e = document.createElement('div'); e.className='pltrack';
+        e.innerHTML = `<div class="meta"><div class="t"></div><div class="s">${esc(v.artist)} · ${fmtDur(v.duration)}</div></div>
+          <button class="tiny">↑</button><button class="tiny">↓</button><button class="tiny primary">▶</button><button class="tiny">✕</button>`;
+        e.querySelector('.t').textContent = (k+1)+'. '+v.title;
+        const eb = e.querySelectorAll('button');
+        eb[0].onclick = ()=>{ if(k>0){ [p.tracks[k-1],p.tracks[k]]=[p.tracks[k],p.tracks[k-1]]; persist(); renderPlaylists(); } };
+        eb[1].onclick = ()=>{ if(k<p.tracks.length-1){ [p.tracks[k+1],p.tracks[k]]=[p.tracks[k],p.tracks[k+1]]; persist(); renderPlaylists(); } };
+        eb[2].onclick = ()=>{ queue = p.tracks.slice(); cur=-1; played.clear(); persist(); renderQueue(); playIndex(k); };
+        eb[3].onclick = ()=>{ p.tracks.splice(k,1); persist(); renderPlaylists(); };
+        tr.appendChild(e);
+      });
+      box.appendChild(tr);
+    }
+  });
+}
+
+// ---- Coadă & redare ----
+function stopPlayback(){
+  clearTimeout(endTimer); clearTimeout(skipTimer); playSeq++;
+  paused = false;
+  cmd('setPlayerCmd:stop').catch(()=>{});
+  document.getElementById('np').innerHTML = '<small>Nimic în redare</small>';
+  document.getElementById('ppBtn').textContent = '⏸';
+}
+function clearQueue(){ queue=[]; cur=-1; played.clear(); stopPlayback(); persist(); renderQueue(); }
+function renderQueue(){
+  const box = document.getElementById('queue');
+  if(!queue.length){ box.innerHTML = '<div class="empty">Coada e goală. Caută o piesă sau pornește un playlist.</div>'; return; }
+  box.innerHTML = '';
+  queue.forEach((v,i)=>{
+    const d = document.createElement('div'); d.className = 'qitem' + (i===cur?' playing':'');
+    d.innerHTML = `<div class="meta"><div class="t"></div><div class="s">${esc(v.artist)} · ${fmtDur(v.duration)}</div></div>
+      <button class="tiny primary">▶</button><button class="tiny">+PL</button><button class="tiny">✕</button>`;
+    d.querySelector('.t').textContent = (i===cur?'▶ ':'') + v.title;
+    const b = d.querySelectorAll('button');
+    b[0].onclick = ()=>playIndex(i);
+    b[1].onclick = ()=>pickPlaylist(v);
+    b[2].onclick = ()=>{
+      queue.splice(i,1);
+      if(cur>i) cur--;
+      else if(cur===i){ cur=-1; stopPlayback(); }
+      persist(); renderQueue();
+    };
+    box.appendChild(d);
+  });
+}
+
+async function playIndex(i){
+  if(i<0 || i>=queue.length) return;
+  clearTimeout(endTimer); clearTimeout(skipTimer);
+  const seq = ++playSeq;
+  const v = queue[i];
+  setStatus('Pregătesc: ' + v.title);
+  let src;
+  try{
+    src = await resolveAudio(v.id);
+  }catch(e){
+    if(seq !== playSeq) return; // între timp s-a pornit altceva
+    setStatus('„' + v.title + '": ' + e.message + ' — trec la următoarea.', false);
+    if(i+1<queue.length) skipTimer = setTimeout(()=>playIndex(i+1), 1500);
+    return;
+  }
+  if(seq !== playSeq) return; // între timp s-a pornit altceva
+  try{
+    await cmd('setPlayerCmd:play:' + encodeURIComponent(src.url));
+    if(seq !== playSeq) return;
+    played.add(v.id);
+    cur = i; paused = false; curDuration = v.duration > 0 ? v.duration : (src.duration||0);
+    trackStart = Date.now(); pausedAt = 0;
+    document.getElementById('ppBtn').textContent = '⏸';
+    document.getElementById('np').textContent = '▶ ' + v.title + '  (' + (i+1) + '/' + queue.length + ')';
+    document.getElementById('connDot').classList.add('on');
+    persist(); renderQueue();
+    setStatus('Redare pe boxe: ' + v.title, true);
+    armEndTimer();
+    // după 4s verificăm dacă streamerul chiar redă (doar cu server local, altfel nu putem citi)
+    setTimeout(async ()=>{
+      if(seq !== playSeq) return;
+      try{
+        const t = await cmd('getPlayerStatus');
+        if(!t) return;
+        const j = JSON.parse(t);
+        if(j.status && j.status !== 'play'){
+          setStatus('Atenție: streamerul e în starea „' + j.status + '" (volum ' + (j.vol||'?') + ') — nu redă. Verifică volumul/sursa amplificatorului.', false);
+        }else if(j.status === 'play'){
+          setStatus('Confirmat: streamerul redă (volum ' + (j.vol||'?') + ').', true);
+        }
+      }catch(e){}
+    }, 4000);
+  }catch(e){
+    setStatus('Nu ajung la streamer (' + ip + '). Verifică WiFi-ul și IP-ul.', false);
+    document.getElementById('connDot').classList.remove('on');
+  }
+}
+
+function armEndTimer(){
+  clearTimeout(endTimer);
+  if(!curDuration) return;
+  const elapsed = (Date.now() - trackStart) / 1000;
+  const remain = Math.max(2, curDuration - elapsed + 3);
+  endTimer = setTimeout(()=>{ if(!paused) nextTrack(); }, remain*1000);
+}
+
+async function togglePause(){
+  if(cur<0) return;
+  try{
+    if(paused){
+      await cmd('setPlayerCmd:resume'); paused=false;
+      trackStart += (Date.now()-pausedAt); armEndTimer();
+      document.getElementById('ppBtn').textContent='⏸';
+    }else{
+      await cmd('setPlayerCmd:pause'); paused=true; pausedAt=Date.now();
+      clearTimeout(endTimer);
+      document.getElementById('ppBtn').textContent='▶';
+    }
+  }catch(e){ setStatus('Comanda nu a ajuns la streamer.', false); }
+}
+function nextTrack(){
+  if(!queue.length){ clearTimeout(endTimer); return; }
+  if(shuffle && queue.length>1){
+    let cands = [];
+    queue.forEach((v,k)=>{ if(!played.has(v.id) && k!==cur) cands.push(k); });
+    if(!cands.length){
+      if(repeat){ played.clear(); queue.forEach((v,k)=>{ if(k!==cur) cands.push(k); }); }
+      else { clearTimeout(endTimer); setStatus('Coada s-a terminat.'); return; }
+    }
+    playIndex(cands[Math.floor(Math.random()*cands.length)]);
+    return;
+  }
+  if(cur+1<queue.length) playIndex(cur+1);
+  else if(repeat && queue.length){ played.clear(); playIndex(0); }
+  else { clearTimeout(endTimer); setStatus('Coada s-a terminat.'); }
+}
+function prevTrack(){ if(cur>0) playIndex(cur-1); }
+function toggleShuffle(){ shuffle=!shuffle; persist(); syncToggles(); }
+function toggleRepeat(){ repeat=!repeat; persist(); syncToggles(); }
+function syncToggles(){
+  document.getElementById('shufBtn').classList.toggle('on', shuffle);
+  document.getElementById('repBtn').classList.toggle('on', repeat);
+}
+async function setVol(v){ try{ await cmd('setPlayerCmd:vol:'+v); }catch(e){ setStatus('Comanda de volum nu a ajuns.', false); } }
+</script>
+</body>
+</html>
