@@ -1,0 +1,31 @@
+name: Build Windows exe
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instaleaza dependentele
+        run: pip install pyinstaller flask requests yt-dlp
+
+      - name: Build exe (PyInstaller, un singur fisier)
+        run: pyinstaller --onefile --name ZionStream --add-data "zion-stream.html;." zion-server.py
+
+      - name: Publica release cu exe-ul
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: dist/ZionStream.exe
+          generate_release_notes: true

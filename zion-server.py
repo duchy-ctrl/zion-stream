@@ -1,20 +1,59 @@
 # Zion Stream - server local: extractie audio YouTube (yt-dlp) + releu audio HTTP
-# pentru streamere Linkplay/Arylic + proxy de comenzi catre streamer.
+# pentru streamere Linkplay/Arylic + proxy de comenzi + auto-update din GitHub
+# + logging cu upload optional in repo (token local in zion-config.json).
 # Porneste cu: porneste-server.bat (sau automat, dupa instaleaza-autostart.bat)
+import base64
+import json
+import logging
 import os
 import re
-import sys
-import time
 import socket
-import threading
 import subprocess
+import sys
+import threading
+import time
+from logging.handlers import RotatingFileHandler
+
 from flask import Flask, request, jsonify
 import requests
 import yt_dlp
 
+VERSION = '1.1.0'
+REPO = 'duchy-ctrl/zion-stream'
+RAW = f'https://raw.githubusercontent.com/{REPO}/main'
+FROZEN = bool(getattr(sys, 'frozen', False))
+
+# cand rulam ca .exe (PyInstaller), fisierele impachetate sunt in _MEIPASS,
+# iar folderul "de lucru" (config, loguri, update-uri) e langa .exe
+if FROZEN:
+    DIR = os.path.dirname(os.path.abspath(sys.executable))
+    ASSET_DIR = sys._MEIPASS
+else:
+    DIR = os.path.dirname(os.path.abspath(__file__))
+    ASSET_DIR = DIR
+
+CONFIG = {}
+try:
+    with open(os.path.join(DIR, 'zion-config.json'), encoding='utf-8') as f:
+        CONFIG = json.load(f)
+except Exception:
+    pass
+
+# ---------- logging: fisier rotativ local + consola ----------
+LOG_PATH = os.path.join(DIR, 'zion-log.txt')
+logger = logging.getLogger('zion')
+logger.setLevel(logging.INFO)
+_fmt = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+_fh = RotatingFileHandler(LOG_PATH, maxBytes=500_000, backupCount=1, encoding='utf-8')
+_fh.setFormatter(_fmt)
+_sh = logging.StreamHandler()
+_sh.setFormatter(_fmt)
+logger.addHandler(_fh)
+logger.addHandler(_sh)
+logging.getLogger('werkzeug').addHandler(_fh)
+
 app = Flask(__name__)
 BASE = {'quiet': True, 'no_warnings': True, 'skip_download': True, 'socket_timeout': 15}
-DIR = os.path.dirname(os.path.abspath(__file__))
 VID_RE = re.compile(r'^[A-Za-z0-9_-]{11}$')
 PID_RE = re.compile(r'^[A-Za-z0-9_-]{10,50}$')
 IP_RE = re.compile(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$')
@@ -35,9 +74,110 @@ def lan_ip():
         return '127.0.0.1'
 
 
-def _self_update():
-    # yt-dlp se strica periodic cand YouTube schimba API-ul; il actualizam
-    # in fundal la fiecare pornire (efectiv de la urmatoarea repornire)
+# ---------- auto-update din GitHub ----------
+def _restart():
+    logger.info('Repornesc serverul pentru update...')
+    if FROZEN:
+        os._exit(0)  # bat-ul de update reporneste exe-ul
+    os.execv(sys.executable, [sys.executable, os.path.join(DIR, 'zion-server.py')])
+
+
+def _update_from_source():
+    r = requests.get(RAW + '/version.txt', timeout=10)
+    if not r.ok:
+        return
+    latest = r.text.strip()
+    if latest == VERSION:
+        return
+    logger.info(f'Update disponibil: {VERSION} -> {latest}. Descarc fisierele...')
+    for name in ('zion-server.py', 'zion-stream.html'):
+        fr = requests.get(f'{RAW}/{name}', timeout=20)
+        fr.raise_for_status()
+        with open(os.path.join(DIR, name), 'wb') as f:
+            f.write(fr.content)
+    logger.info('Fisiere actualizate.')
+    _restart()
+
+
+def _update_frozen():
+    r = requests.get(f'https://api.github.com/repos/{REPO}/releases/latest', timeout=10)
+    if not r.ok:
+        return
+    j = r.json()
+    latest = (j.get('tag_name') or '').lstrip('v')
+    if not latest or latest == VERSION:
+        return
+    asset = next((a for a in j.get('assets', []) if a['name'].endswith('.exe')), None)
+    if not asset:
+        return
+    logger.info(f'Update disponibil: {VERSION} -> {latest}. Descarc {asset["name"]}...')
+    new_exe = os.path.join(DIR, 'ZionStream-new.exe')
+    with requests.get(asset['browser_download_url'], stream=True, timeout=120) as dl:
+        dl.raise_for_status()
+        with open(new_exe, 'wb') as f:
+            for chunk in dl.iter_content(1024 * 256):
+                f.write(chunk)
+    cur = os.path.basename(sys.executable)
+    bat = os.path.join(DIR, 'zion-update.bat')
+    with open(bat, 'w') as f:
+        f.write('@echo off\ntimeout /t 3 /nobreak >nul\n'
+                f'move /y "ZionStream-new.exe" "{cur}" >nul\n'
+                f'start "" "{cur}"\n')
+    subprocess.Popen(['cmd', '/c', bat], cwd=DIR,
+                     creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    logger.info('Pornesc schimbul de versiune si ies.')
+    _restart()
+
+
+def update_loop():
+    time.sleep(10)
+    while True:
+        try:
+            if CONFIG.get('auto_update', True):
+                _update_frozen() if FROZEN else _update_from_source()
+        except Exception as ex:
+            logger.warning(f'Verificarea de update a esuat: {ex}')
+        time.sleep(6 * 3600)
+
+
+# ---------- upload loguri in GitHub (optional, token local) ----------
+def logs_loop():
+    token = CONFIG.get('github_token', '')
+    if not token:
+        logger.info('Fara github_token in zion-config.json - logurile raman doar locale.')
+        return
+    host = re.sub(r'[^A-Za-z0-9-]', '-', socket.gethostname()) or 'pc'
+    api = f'https://api.github.com/repos/{REPO}/contents/logs/{host}.txt'
+    headers = {'Authorization': 'Bearer ' + token,
+               'Accept': 'application/vnd.github+json'}
+    last = ''
+    while True:
+        time.sleep(CONFIG.get('log_upload_minutes', 10) * 60)
+        try:
+            with open(LOG_PATH, 'r', encoding='utf-8', errors='replace') as f:
+                text = f.read()[-150_000:]
+            if text == last:
+                continue
+            sha = None
+            g = requests.get(api, headers=headers, timeout=15)
+            if g.ok:
+                sha = g.json().get('sha')
+            body = {'message': f'loguri {host} ({time.strftime("%Y-%m-%d %H:%M")})',
+                    'content': base64.b64encode(text.encode()).decode()}
+            if sha:
+                body['sha'] = sha
+            p = requests.put(api, headers=headers, json=body, timeout=30)
+            if p.ok:
+                last = text
+            else:
+                logger.warning(f'Upload loguri esuat: HTTP {p.status_code}')
+        except Exception as ex:
+            logger.warning(f'Upload loguri esuat: {ex}')
+
+
+def _self_update_ytdlp():
+    if FROZEN:
+        return  # in exe, yt-dlp e impachetat; se actualizeaza cu release-ul
     try:
         subprocess.run([sys.executable, '-m', 'pip', 'install', '--quiet',
                         '--upgrade', 'yt-dlp', 'requests'], timeout=300,
@@ -65,18 +205,35 @@ def cors(r):
     return r
 
 
+@app.errorhandler(Exception)
+def on_error(ex):
+    logger.exception('Eroare neasteptata')
+    return jsonify(error=str(ex)), 500
+
+
 @app.get('/')
 def index():
-    try:
-        with open(os.path.join(DIR, 'zion-stream.html'), encoding='utf-8') as f:
-            return f.read()
-    except FileNotFoundError:
-        return 'Pune zion-stream.html in acelasi folder cu zion-server.py', 404
+    # varianta actualizata (descarcata de auto-update) are prioritate fata de cea impachetata
+    for base in (DIR, ASSET_DIR):
+        p = os.path.join(base, 'zion-stream.html')
+        if os.path.exists(p):
+            with open(p, encoding='utf-8') as f:
+                return f.read()
+    return 'Pune zion-stream.html in acelasi folder cu zion-server.py', 404
 
 
 @app.get('/api/ping')
 def ping():
-    return jsonify(ok=True, server='zion-stream', lan=LAN_URL)
+    return jsonify(ok=True, server='zion-stream', lan=LAN_URL, ver=VERSION)
+
+
+@app.get('/api/logs')
+def logs_view():
+    try:
+        with open(LOG_PATH, 'r', encoding='utf-8', errors='replace') as f:
+            return app.response_class(f.read()[-100_000:], mimetype='text/plain')
+    except FileNotFoundError:
+        return app.response_class('(fara loguri inca)', mimetype='text/plain')
 
 
 @app.get('/api/search')
@@ -88,6 +245,7 @@ def search():
         with yt_dlp.YoutubeDL({**BASE, 'extract_flat': True}) as ydl:
             info = ydl.extract_info(f'ytsearch10:{q}', download=False)
     except Exception as ex:
+        logger.warning(f'Cautare esuata "{q}": {ex}')
         return jsonify(error=str(ex)), 500
     items = []
     for e in (info or {}).get('entries') or []:
@@ -101,6 +259,7 @@ def search():
             'duration': e.get('duration') or 0,
             'thumb': thumbs[-1].get('url', ''),
         })
+    logger.info(f'Cautare "{q}": {len(items)} rezultate')
     return jsonify(items)
 
 
@@ -112,6 +271,7 @@ def resolve(vid):
         url, dur = audio_url(vid)
         return jsonify(url=url, duration=dur)
     except Exception as ex:
+        logger.warning(f'Resolve esuat {vid}: {ex}')
         return jsonify(error=str(ex)), 500
 
 
@@ -124,6 +284,7 @@ def audio(vid):
     try:
         url, _ = audio_url(vid)
     except Exception as ex:
+        logger.warning(f'Audio esuat {vid}: {ex}')
         return jsonify(error=str(ex)), 500
     up_headers = {}
     rng = request.headers.get('Range')
@@ -132,6 +293,7 @@ def audio(vid):
     try:
         upstream = requests.get(url, headers=up_headers, stream=True, timeout=20)
     except Exception as ex:
+        logger.warning(f'Sursa audio inaccesibila {vid}: {ex}')
         return jsonify(error='nu pot accesa sursa audio: ' + str(ex)), 502
 
     def gen():
@@ -160,6 +322,7 @@ def devcmd():
         r = requests.get(f'http://{ip}/httpapi.asp?command={c}', timeout=5)
         return app.response_class(r.text, mimetype='text/plain')
     except Exception as ex:
+        logger.warning(f'Comanda catre {ip} esuata: {ex}')
         return jsonify(error=str(ex)), 502
 
 
@@ -167,7 +330,6 @@ def devcmd():
 def discover():
     # Scaneaza reteaua locala si gaseste streamerele Linkplay/Arylic
     import concurrent.futures
-    import json as _json
     base = lan_ip().rsplit('.', 1)[0]
 
     def probe(n):
@@ -175,7 +337,7 @@ def discover():
         try:
             r = requests.get(f'http://{ipa}/httpapi.asp?command=getStatusEx', timeout=1.2)
             if r.ok:
-                j = _json.loads(r.text)
+                j = json.loads(r.text)
                 name = j.get('DeviceName') or j.get('GroupName') or 'dispozitiv'
                 return {'ip': ipa, 'name': name, 'firmware': j.get('firmware', '')}
         except Exception:
@@ -187,6 +349,7 @@ def discover():
         for res in ex.map(probe, range(1, 255)):
             if res:
                 found.append(res)
+    logger.info(f'Scanare retea: {len(found)} streamere gasite')
     return jsonify(found)
 
 
@@ -210,14 +373,18 @@ def playlist(pid):
             })
         return jsonify(name=info.get('title') or 'Playlist YouTube', tracks=tracks)
     except Exception as ex:
+        logger.warning(f'Import playlist esuat {pid}: {ex}')
         return jsonify(error=str(ex)), 500
 
 
 if __name__ == '__main__':
     LAN_URL = f'http://{lan_ip()}:8321'
-    threading.Thread(target=_self_update, daemon=True).start()
+    logger.info(f'Zion Stream v{VERSION} pornit ({"exe" if FROZEN else "python"}) - {LAN_URL}')
+    threading.Thread(target=_self_update_ytdlp, daemon=True).start()
+    threading.Thread(target=update_loop, daemon=True).start()
+    threading.Thread(target=logs_loop, daemon=True).start()
     print('=' * 50)
-    print('  Zion Stream server pornit!')
+    print(f'  Zion Stream v{VERSION} pornit!')
     print('  Deschide in browser (PC sau telefon, acelasi net):')
     print(f'  {LAN_URL}')
     print('=' * 50)

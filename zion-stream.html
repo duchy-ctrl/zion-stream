@@ -249,7 +249,7 @@ async function testLocalSrv(){
     const j = await r.json();
     if(j.ok){
       if(j.lan) lanBase = j.lan.replace(/\/+$/,'');
-      setStatus('Server local funcțional! Va fi folosit ca sursă principală.', true);
+      setStatus('Server local funcțional (v' + (j.ver||'?') + ')! Va fi folosit ca sursă principală.', true);
       return;
     }
     throw 0;

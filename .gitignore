@@ -1,3 +1,14 @@
 __pycache__/
 *.pyc
 .DS_Store
+
+# secrete si fisiere locale - NU se urca niciodata
+zion-config.json
+zion-log.txt*
+zion-update.bat
+ZionStream-new.exe
+
+# artefacte de build
+build/
+dist/
+*.spec

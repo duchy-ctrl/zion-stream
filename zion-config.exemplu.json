@@ -1,0 +1,6 @@
+{
+  "_instructiuni": "Copiaza acest fisier ca zion-config.json (NU il urca in git!). Token: github.com -> Settings -> Developer settings -> Fine-grained tokens -> doar repo zion-stream, permisiune Contents: Read and write.",
+  "github_token": "",
+  "auto_update": true,
+  "log_upload_minutes": 10
+}

@@ -65,6 +65,31 @@ Pentru depanare, rulează `porneste-server.bat` — pornește serverul cu mesaje
 | `instaleaza-autostart.bat` | Instalator complet (o singură rulare, ca Administrator) |
 | `porneste-server.bat` | Pornire manuală, cu consolă vizibilă (depanare) |
 | `tests/test-harness.js` | Teste funcționale pentru logica UI (node) |
+| `version.txt` | Versiunea curentă — motorul auto-update-ului |
+| `zion-config.exemplu.json` | Model pentru configul local (token loguri, auto-update) |
+| `.github/workflows/build.yml` | Build automat de `ZionStream.exe` la fiecare tag `v*` |
+
+## Auto-update
+
+Serverul verifică GitHub la pornire și apoi la fiecare 6 ore:
+
+- **rulat din sursă (Python)**: compară `version.txt` din repo cu versiunea locală; dacă e mai nouă, descarcă `zion-server.py` + `zion-stream.html` din `main` și repornește singur
+- **rulat ca `ZionStream.exe`**: compară cu ultimul release; dacă e mai nou, descarcă exe-ul, se înlocuiește singur și repornește
+
+Deci: faci modificări → commit + push → crești `version.txt` (și `VERSION` din `zion-server.py`) → toate PC-urile se actualizează singure în cel mult 6 ore. Pentru exe: creezi un tag `v1.2.0` → GitHub Actions construiește și publică release-ul automat.
+
+Se dezactivează cu `"auto_update": false` în `zion-config.json`.
+
+## Loguri
+
+- Local: `zion-log.txt` (rotativ, max ~1 MB), vizibil și în browser la `http://IP-PC:8321/api/logs`
+- **Upload în repo** (opțional): copiezi `zion-config.exemplu.json` → `zion-config.json`, pui un token GitHub *fine-grained* (doar repo-ul ăsta, permisiune „Contents: read/write") și serverul urcă logurile în `logs/NUME-PC.txt` la fiecare 10 minute — le putem citi de oriunde pentru depanare
+
+⚠️ `zion-config.json` conține token-ul și e blocat prin `.gitignore` — nu-l urca niciodată în git și nu da token-ului acces la alte repo-uri.
+
+## Build Windows (.exe)
+
+La fiecare tag `v*` împins în repo, GitHub Actions construiește `ZionStream.exe` (PyInstaller, un singur fișier, cu interfața inclusă) și îl atașează la Release. Exe-ul nu are nevoie de Python instalat — doar îl pui în `C:\ZionStream` și îl rulezi; restul (autostart, firewall) se face tot cu `instaleaza-autostart.bat` sau manual.
 
 ## Teste
 
