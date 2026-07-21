@@ -5,8 +5,9 @@ __pycache__/
 # secrete si fisiere locale - NU se urca niciodata
 zion-config.json
 zion-log.txt*
+zion-state.json
 zion-update.bat
-ZionStream-new.exe
+ZionStream-new.exe*
 
 # artefacte de build
 build/

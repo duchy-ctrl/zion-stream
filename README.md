@@ -93,6 +93,8 @@ Programul și playlisturile se pot schimba din `zion-config.json` (`schedule` ș
 
 Aplicația se actualizează singură: verifică GitHub la pornire și la fiecare 6 ore, iar dacă există versiune nouă se descarcă și repornește singură. Pentru dezvoltator, publicarea unei versiuni = commit + push + tag nou `v*` (build-ul și release-ul se fac automat).
 
+Un **paznic** (`zion-watchdog.bat`, pornit automat cu Windows) ține aplicația mereu în funcțiune: dacă se închide — din update sau dintr-o eroare — o repornește în ~4 secunde, iar muzica revine automat (Auto-DJ e salvat). Deci un update = o pauză de câteva secunde, nu o oprire până la restart manual.
+
 Logurile sunt în `zion-log.txt` lângă aplicație și în browser la `http://IP-PC:8321/api/logs` — dacă ceva nu merge, deschizi adresa aia și trimiți ce scrie. (Opțional, pentru depanare de la distanță, logurile pot urca automat în repo — vezi `zion-config.exemplu.json`.)
 
 ## Teste

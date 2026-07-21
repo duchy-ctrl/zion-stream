@@ -19,7 +19,7 @@ from flask import Flask, request, jsonify
 import requests
 import yt_dlp
 
-VERSION = '1.4.0'
+VERSION = '1.5.0'
 REPO = 'duchy-ctrl/zion-stream'
 RAW = f'https://raw.githubusercontent.com/{REPO}/main'
 FROZEN = bool(getattr(sys, 'frozen', False))
@@ -129,9 +129,11 @@ def ffmpeg_path():
 
 # ---------- auto-update din GitHub ----------
 def _restart():
-    logger.info('Repornesc serverul pentru update...')
+    # La exe: iesim, iar "paznicul" (zion-watchdog.bat) porneste noua versiune
+    # in cateva secunde. La sursa: ne repornim singuri.
+    logger.info('Ies pentru update (paznicul repornește noua versiune)...')
     if FROZEN:
-        os._exit(0)  # bat-ul de update reporneste exe-ul
+        os._exit(0)
     os.execv(sys.executable, [sys.executable, os.path.join(DIR, 'zion-server.py')])
 
 
@@ -165,20 +167,14 @@ def _update_frozen():
         return
     logger.info(f'Update disponibil: {VERSION} -> {latest}. Descarc {asset["name"]}...')
     new_exe = os.path.join(DIR, 'ZionStream-new.exe')
+    tmp = new_exe + '.part'
     with requests.get(asset['browser_download_url'], stream=True, timeout=120) as dl:
         dl.raise_for_status()
-        with open(new_exe, 'wb') as f:
+        with open(tmp, 'wb') as f:
             for chunk in dl.iter_content(1024 * 256):
                 f.write(chunk)
-    cur = os.path.basename(sys.executable)
-    bat = os.path.join(DIR, 'zion-update.bat')
-    with open(bat, 'w') as f:
-        f.write('@echo off\ntimeout /t 3 /nobreak >nul\n'
-                f'move /y "ZionStream-new.exe" "{cur}" >nul\n'
-                f'start "" "{cur}"\n')
-    subprocess.Popen(['cmd', '/c', bat], cwd=DIR,
-                     creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-    logger.info('Pornesc schimbul de versiune si ies.')
+    os.replace(tmp, new_exe)  # aparut integral doar cand descarcarea e gata
+    logger.info('Versiune noua descarcata. Ies; paznicul o pune in loc si o pornește.')
     _restart()
 
 
